@@ -51,6 +51,13 @@ export default function RootLayout() {
             headerShown: true,
           })}
         />
+        <Stack.Screen
+          name="group/[id]"
+          options={{
+            title: 'Group',
+            headerShown: true,
+          }}
+        />
       </Stack>
       <StatusBar style="light" />
     </>

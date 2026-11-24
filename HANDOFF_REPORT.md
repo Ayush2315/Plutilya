@@ -1,4 +1,4 @@
-# HANDOFF REPORT — Milestone 3 (Indian Bank/UPI SMS & Notification Parser Engine + Tester Lab)
+# HANDOFF REPORT — Milestone 4 (Friends & Groups Management)
 
 ## 1. Status: ✅ Completed
 
@@ -6,54 +6,39 @@
 
 | File | Summary |
 |---|---|
-| `src/services/smsParser.ts` | **NEW** — `ParsedTransaction` interface + `parseTransactionMessage()` parser with ignore filters, amount extraction (₹/Rs/INR), merchant extraction (5 patterns), UPI handle cleanup, and 30+ merchant→app+category auto-mapping rules |
-| `src/services/smsParser.samples.ts` | **NEW** — 8 realistic Indian bank/UPI test messages (6 valid debits + 2 ignored: OTP & refund) |
-| `src/db/expensesRepo.ts` | **MODIFIED** — `AddExpenseInput.source` is now optional (`ExpenseSource`, defaults to `'manual'`), enabling parsed SMS to be saved with `source: 'sms'` |
-| `app/(tabs)/settings.tsx` | **REWRITTEN** — Full "Parser Lab" UI: multiline input, 8 quick-fill sample chips, Parse button, result card (Amount/Merchant/App/Category) or "Ignored" badge, Save to Plutilya button |
+| `src/db/groupsRepo.ts` | **NEW** — Full typed async repository: `addFriend`, `getAllFriends`, `deleteFriend`, `createGroup`, `getAllGroupsWithMembers`, `getGroupById`, `addMemberToGroup`, `removeMemberFromGroup`, `deleteGroup` |
+| `app/(tabs)/groups.tsx` | **REWRITTEN** — Segmented Groups/Friends toggle, groups list with member count badge & name preview, friends list with delete, "+ New Group" modal with multi-select friend checkboxes, "+ Add Friend" modal with name + phone inputs |
+| `app/group/[id].tsx` | **NEW** — Group detail screen: member list with remove (✕) buttons, "+ Add" member modal showing non-members, "Delete Group" button, placeholder section for future shared expenses/dues |
+| `app/_layout.tsx` | **MODIFIED** — Registered `group/[id]` Stack.Screen with dark header and back button |
 
-## 3. Parser Coverage Summary
+## 3. Key Functions / Routes Added
 
-### Ignore Filters (return `null`)
-- OTPs, verification codes
-- Credits, refunds, cashback
-- Login/sign-in alerts
-- Promotional spam
+### Repository Functions (`src/db/groupsRepo.ts`)
 
-### Amount Formats Supported
-| Format | Example |
+| Function | Description |
 |---|---|
-| `Rs.` / `Rs` | `Rs.1,249.50`, `Rs 85` |
-| `INR` | `INR 2,599.00` |
-| `₹` | `₹185.00`, `₹ 1,500` |
-| Comma-separated | `1,45,000` (Indian lakhs) |
+| `addFriend(name, phone?)` | Insert a friend, return new ID |
+| `getAllFriends()` | All friends sorted alphabetically (NOCASE) |
+| `deleteFriend(id)` | Delete a friend (cascades from group_members) |
+| `createGroup(name, friendIds[])` | Insert group + link members, return group ID |
+| `getAllGroupsWithMembers()` | All groups with member count + `Friend[]` members |
+| `getGroupById(id)` | Single group with members (or `null`) |
+| `addMemberToGroup(groupId, friendId)` | Insert into `group_members` (IGNORE on duplicate) |
+| `removeMemberFromGroup(groupId, friendId)` | Delete from `group_members` |
+| `deleteGroup(id)` | Delete group (cascades members) |
 
-### Merchant Extraction Patterns (tried in order)
-1. `at <merchant> on/./EOL`
-2. `to <merchant> on/./EOL`
-3. `VPA <upi_id>` → strips `@ybl`, `@axisbank`, etc.
-4. `Info: UPI/<txnid>/<vpa>/<merchant>`
-5. `UPI-<merchant>` or `UPI/<merchant>`
+### New Routes
 
-### Auto-Categorization Rules (30+ patterns)
-
-| Category | Merchants / Keywords |
+| Route | Screen |
 |---|---|
-| **Food** | Zepto, Blinkit, Swiggy, Zomato, Instamart, Dominos, McDonalds, Starbucks, Dunkin, Cafe, Restaurant, Biryani |
-| **Shopping** | Amazon, Flipkart, Myntra, Ajio, Nykaa, Meesho, Decathlon, Croma, Reliance |
-| **Travel** | Uber, Ola, Rapido, IRCTC, MakeMyTrip, Metro, Petrol, Shell, HPCL, BPCL, IOCL |
-| **Miscellaneous** | Fallback for unknown merchants (`app_name: null`) |
+| `/(tabs)/groups` | Groups & Friends with segmented toggle |
+| `/group/[id]` | Group detail with member management |
 
-### Sample Test Messages
-| # | Label | Type | Expected Result |
-|---|---|---|---|
-| 1 | HDFC → Swiggy | Debit | ₹349.00, Swiggy, Food |
-| 2 | SBI → Zepto | Debit | ₹1,249.50, Zepto, Food |
-| 3 | ICICI → Amazon | Debit | ₹2,599.00, Amazon, Shopping |
-| 4 | GPay → Uber | Debit | ₹185.00, Uber, Travel |
-| 5 | PhonePe → Blinkit | Debit | ₹432.00, Blinkit, Food |
-| 6 | Unknown shop | Debit | ₹85.00, Ravi Kirana Store, Miscellaneous |
-| 7 | 🚫 OTP | Ignored | `null` |
-| 8 | 🚫 Refund | Ignored | `null` |
+### Composite Types
+
+| Type | Definition |
+|---|---|
+| `GroupWithMembers` | `Group & { member_count: number; members: Friend[] }` |
 
 ## 4. Verification
 
@@ -66,20 +51,20 @@
 cd f:\Codec\plutilya
 npx expo start --android
 ```
-1. Open **Settings** tab → see "🧪 Parser Lab" header
-2. Tap any **quick-fill chip** (e.g. "HDFC → Swiggy") → text area fills with sample SMS
-3. Tap **"🔍 Parse Message"** → result card shows Amount ₹349.00, Merchant, App: Swiggy, Category: 🍔 Food
-4. Tap **"💾 Save to Plutilya"** → alert confirms → button changes to ✅
-5. Go to **Dashboard** → verify the saved expense appears in Recent + Food category
-6. Tap **"🚫 OTP"** chip → Parse → shows red "Ignored — Not a debit transaction" badge
-7. Paste any **real bank SMS** from your phone → Parse → verify extraction
+1. **Groups tab** → toggle to **Friends** → tap **"+ Add Friend"** → enter name + phone → Save → friend appears in list
+2. Add 2-3 friends, then toggle to **Groups** → tap **"+ New Group"** → enter name, check friends → Create → group appears with member count badge
+3. Tap a **group card** → navigates to `/group/[id]` → see members, "Shared Expenses & Dues (Coming…)" placeholder
+4. Tap **"+ Add"** in group detail → modal shows non-members → tap to add → member appears
+5. Tap **✕** on a member → confirmation → member removed
+6. Tap **"🗑 Delete Group"** → confirmation → navigates back to groups list
+7. In Friends view, tap **🗑** on a friend → confirmation → deleted (also removed from any groups via CASCADE)
 
 ## 5. Known Issues / Next Steps
 
-- **No known issues.** Zero new dependencies — pure TypeScript regex engine running in-app.
-- **Parser is extensible:** Add more patterns to `MERCHANT_RULES` array in `smsParser.ts` for additional merchants.
-- **Milestone 4/5 candidates:**
-  - Native SMS inbox reader (Android `ContentResolver` via custom native module or `expo-sms`)
-  - Android Notification Listener Service (auto-capture GPay/PhonePe notifications)
-  - Batch-import historical SMS through the parser
-  - Group splitting / bill itemization UI
+- **No known issues.** Zero new dependencies — uses existing `friends`, `groups`, and `group_members` tables from M1.
+- **No breaking changes** to any M1-M3 code.
+- **Milestone 5 candidates:**
+  - Itemized expense entry (line items with quantity + unit price)
+  - Item-level bill splitting with per-friend share assignment
+  - Autocomplete merchant/app suggestions
+  - `+` / `−` stepper for quantities
