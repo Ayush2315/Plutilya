@@ -46,7 +46,6 @@ export default function DashboardScreen() {
 
   const grandTotal = summaries.reduce((s, r) => s + r.total, 0);
 
-  // Build a lookup so every CATEGORY always shows, even if 0
   const catData = CATEGORIES.map((c) => {
     const row = summaries.find((s) => s.category === c.key);
     return { ...c, total: row?.total ?? 0, count: row?.count ?? 0 };
@@ -72,10 +71,7 @@ export default function DashboardScreen() {
                   onPress={() => setFilter(f)}
                 >
                   <Text
-                    style={[
-                      styles.filterText,
-                      filter === f && styles.filterTextActive,
-                    ]}
+                    style={[styles.filterText, filter === f && styles.filterTextActive]}
                   >
                     {f === 'month' ? 'This Month' : 'All Time'}
                   </Text>
@@ -107,7 +103,6 @@ export default function DashboardScreen() {
                   <Text style={styles.catCount}>
                     {c.count} txn{c.count !== 1 ? 's' : ''}
                   </Text>
-                  {/* progress bar */}
                   <View style={styles.barBg}>
                     <View
                       style={[
@@ -128,16 +123,18 @@ export default function DashboardScreen() {
           )}
         </>
       }
-      renderItem={({ item }) => <RecentRow expense={item} />}
+      renderItem={({ item }) => (
+        <RecentRow expense={item} onPress={() => router.push(`/expense/${item.id}` as `/expense/${string}`)} />
+      )}
     />
   );
 }
 
-// ─── Recent expense row ──────────────────────────────────────────────
-function RecentRow({ expense }: { expense: Expense }) {
+// ─── Recent expense row (now tappable) ───────────────────────────────
+function RecentRow({ expense, onPress }: { expense: Expense; onPress: () => void }) {
   const cat = CATEGORY_MAP[expense.category];
   return (
-    <View style={styles.row}>
+    <TouchableOpacity style={styles.row} onPress={onPress} activeOpacity={0.7}>
       <Text style={styles.rowIcon}>{cat?.icon ?? '📦'}</Text>
       <View style={styles.rowMid}>
         <Text style={styles.rowMerchant} numberOfLines={1}>
@@ -153,7 +150,7 @@ function RecentRow({ expense }: { expense: Expense }) {
         </View>
       </View>
       <Text style={styles.rowAmount}>₹{expense.amount.toFixed(2)}</Text>
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -162,90 +159,49 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0D0D0D' },
   content: { padding: 16, paddingBottom: 32 },
 
-  /* total card */
   totalCard: {
-    backgroundColor: '#161616',
-    borderRadius: 16,
-    padding: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
+    backgroundColor: '#161616', borderRadius: 16, padding: 20,
+    alignItems: 'center', borderWidth: 1, borderColor: '#2A2A2A',
   },
   totalLabel: { color: '#888', fontSize: 14 },
   totalAmount: { color: '#F5F5F5', fontSize: 36, fontWeight: '800', marginTop: 4 },
   filterRow: { flexDirection: 'row', marginTop: 14, gap: 10 },
   filterBtn: {
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: '#333',
+    paddingHorizontal: 16, paddingVertical: 6, borderRadius: 20,
+    borderWidth: 1, borderColor: '#333',
   },
   filterBtnActive: { backgroundColor: '#7C5CFC30', borderColor: '#7C5CFC' },
   filterText: { color: '#888', fontSize: 13 },
   filterTextActive: { color: '#7C5CFC', fontWeight: '600' },
 
-  /* section */
-  sectionTitle: {
-    color: '#F5F5F5',
-    fontSize: 18,
-    fontWeight: '700',
-    marginTop: 24,
-    marginBottom: 12,
-  },
+  sectionTitle: { color: '#F5F5F5', fontSize: 18, fontWeight: '700', marginTop: 24, marginBottom: 12 },
 
-  /* category grid */
-  catGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
+  catGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   catCard: {
-    width: '48%',
-    backgroundColor: '#161616',
-    borderRadius: 14,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#2A2A2A',
+    width: '48%', backgroundColor: '#161616', borderRadius: 14, padding: 14,
+    borderWidth: 1, borderColor: '#2A2A2A',
   },
   catHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 6 },
   catIcon: { fontSize: 20, marginRight: 6 },
   catLabel: { fontSize: 14, fontWeight: '700' },
   catAmount: { color: '#F5F5F5', fontSize: 20, fontWeight: '700' },
   catCount: { color: '#666', fontSize: 12, marginTop: 2 },
-  barBg: {
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: '#2A2A2A',
-    marginTop: 8,
-    overflow: 'hidden',
-  },
+  barBg: { height: 4, borderRadius: 2, backgroundColor: '#2A2A2A', marginTop: 8, overflow: 'hidden' },
   barFill: { height: 4, borderRadius: 2 },
 
-  /* recent rows */
   empty: { color: '#555', fontSize: 14, textAlign: 'center', marginTop: 8 },
   row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#161616',
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    borderWidth: 1,
-    borderColor: '#1E1E1E',
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: '#161616', borderRadius: 12, padding: 14,
+    marginBottom: 8, borderWidth: 1, borderColor: '#1E1E1E',
   },
   rowIcon: { fontSize: 24, marginRight: 12 },
   rowMid: { flex: 1 },
   rowMerchant: { color: '#F5F5F5', fontSize: 15, fontWeight: '600' },
   rowMeta: { flexDirection: 'row', marginTop: 3, gap: 8 },
   rowApp: {
-    color: '#AAA',
-    fontSize: 11,
-    backgroundColor: '#252525',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
-    overflow: 'hidden',
+    color: '#AAA', fontSize: 11, backgroundColor: '#252525',
+    paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4, overflow: 'hidden',
   },
   rowCat: { fontSize: 11 },
   rowAmount: { color: '#F5F5F5', fontSize: 16, fontWeight: '700' },

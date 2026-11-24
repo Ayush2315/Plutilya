@@ -53,10 +53,15 @@ export default function RootLayout() {
         />
         <Stack.Screen
           name="group/[id]"
-          options={{
-            title: 'Group',
-            headerShown: true,
-          }}
+          options={{ title: 'Group', headerShown: true }}
+        />
+        <Stack.Screen
+          name="expense/[id]"
+          options={{ title: 'Expense Details', headerShown: true }}
+        />
+        <Stack.Screen
+          name="split/[id]"
+          options={{ title: 'Split Expense', headerShown: true }}
         />
       </Stack>
       <StatusBar style="light" />

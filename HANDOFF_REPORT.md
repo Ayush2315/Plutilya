@@ -1,70 +1,87 @@
-# HANDOFF REPORT — Milestone 4 (Friends & Groups Management)
+# HANDOFF REPORT — Milestone 6: Per-Item Splitting + Proportional Fees/Discounts + Dues & WhatsApp Summary
 
-## 1. Status: ✅ Completed
+## Status: ✅ COMPLETED
 
-## 2. Files Created / Modified
+`npx tsc --noEmit` → **0 errors**
 
-| File | Summary |
-|---|---|
-| `src/db/groupsRepo.ts` | **NEW** — Full typed async repository: `addFriend`, `getAllFriends`, `deleteFriend`, `createGroup`, `getAllGroupsWithMembers`, `getGroupById`, `addMemberToGroup`, `removeMemberFromGroup`, `deleteGroup` |
-| `app/(tabs)/groups.tsx` | **REWRITTEN** — Segmented Groups/Friends toggle, groups list with member count badge & name preview, friends list with delete, "+ New Group" modal with multi-select friend checkboxes, "+ Add Friend" modal with name + phone inputs |
-| `app/group/[id].tsx` | **NEW** — Group detail screen: member list with remove (✕) buttons, "+ Add" member modal showing non-members, "Delete Group" button, placeholder section for future shared expenses/dues |
-| `app/_layout.tsx` | **MODIFIED** — Registered `group/[id]` Stack.Screen with dark header and back button |
+---
 
-## 3. Key Functions / Routes Added
+## Files Created / Modified
 
-### Repository Functions (`src/db/groupsRepo.ts`)
+| # | File | Action | Summary |
+|---|------|--------|---------|
+| 1 | `src/services/splitEngine.ts` | **Created** | Pure TS split math: `calculateItemizedSplit()` with proportional fee/discount distribution, paise rounding, drift correction on ME/largest share; `formatSplitShareMessage()` for WhatsApp/SMS-ready text. |
+| 2 | `src/db/splitsRepo.ts` | **Created** | `ensureExpenseItems()` (synthetic item for non-itemized expenses), `saveExpenseSplits()`, `getSplitsByExpenseId()`, `toggleFriendExpenseSettled()`, `getGroupDuesSummary()`. |
+| 3 | `app/split/[id].tsx` | **Created** | 3-step split flow: select participants (groups + individual friends + "Include Me" toggle) → assign items with `−/+` steppers and "Split Equally" per item → live summary with save. |
+| 4 | `app/expense/[id].tsx` | **Rewritten** | Added split breakdown card with per-friend settle/unsettle toggle, "Share Bill (WhatsApp/SMS)" button via `Share.share()`, enabled "Split with Friends" navigation to `/split/${id}`. |
+| 5 | `app/group/[id].tsx` | **Rewritten** | Live "Pending Dues" section from `getGroupDuesSummary()`, "Send Reminder" button per member via `Share.share()`, "All settled ✓" card when no pending dues. |
+| 6 | `app/_layout.tsx` | **Modified** | Registered `split/[id]` route with `<Stack.Screen>`. |
+| 7 | (no 7th — 6 files total) | — | — |
 
-| Function | Description |
-|---|---|
-| `addFriend(name, phone?)` | Insert a friend, return new ID |
-| `getAllFriends()` | All friends sorted alphabetically (NOCASE) |
-| `deleteFriend(id)` | Delete a friend (cascades from group_members) |
-| `createGroup(name, friendIds[])` | Insert group + link members, return group ID |
-| `getAllGroupsWithMembers()` | All groups with member count + `Friend[]` members |
-| `getGroupById(id)` | Single group with members (or `null`) |
-| `addMemberToGroup(groupId, friendId)` | Insert into `group_members` (IGNORE on duplicate) |
-| `removeMemberFromGroup(groupId, friendId)` | Delete from `group_members` |
-| `deleteGroup(id)` | Delete group (cascades members) |
+---
 
-### New Routes
+## Key Functions / Routes Added
 
-| Route | Screen |
-|---|---|
-| `/(tabs)/groups` | Groups & Friends with segmented toggle |
-| `/group/[id]` | Group detail with member management |
+### Split Engine (`src/services/splitEngine.ts`)
+- `calculateItemizedSplit({ expenseTotal, items, participants, assignments })` → `SplitResult` with per-participant `{ participantId, name, itemSubtotal, extraFeeShare, finalTotal, itemBreakdown[] }`
+- `formatSplitShareMessage(expense, splitResults)` → WhatsApp-formatted string
 
-### Composite Types
+### Splits Repository (`src/db/splitsRepo.ts`)
+- `ensureExpenseItems(expenseId, expenseAmount)` — creates synthetic item if expense has none
+- `saveExpenseSplits(expenseId, splits)` — batch insert into `item_splits`
+- `getSplitsByExpenseId(expenseId)` — returns all splits joined with friend names and item details
+- `toggleFriendExpenseSettled(expenseId, friendId, settled)` — toggle `is_settled` flag
+- `getGroupDuesSummary(groupId)` — aggregates unsettled dues per member across the group's expenses
 
-| Type | Definition |
-|---|---|
-| `GroupWithMembers` | `Group & { member_count: number; members: Friend[] }` |
+### New Route
+- `/split/[id]` — 3-step split screen for any expense
 
-## 4. Verification
+---
 
-```
-✅ npx tsc --noEmit → 0 errors, 0 warnings
-```
+## Verification
 
-### Manual Test Steps
-```bash
-cd f:\Codec\plutilya
-npx expo start --android
-```
-1. **Groups tab** → toggle to **Friends** → tap **"+ Add Friend"** → enter name + phone → Save → friend appears in list
-2. Add 2-3 friends, then toggle to **Groups** → tap **"+ New Group"** → enter name, check friends → Create → group appears with member count badge
-3. Tap a **group card** → navigates to `/group/[id]` → see members, "Shared Expenses & Dues (Coming…)" placeholder
-4. Tap **"+ Add"** in group detail → modal shows non-members → tap to add → member appears
-5. Tap **✕** on a member → confirmation → member removed
-6. Tap **"🗑 Delete Group"** → confirmation → navigates back to groups list
-7. In Friends view, tap **🗑** on a friend → confirmation → deleted (also removed from any groups via CASCADE)
+| Check | Result |
+|-------|--------|
+| `npx tsc --noEmit` | ✅ 0 errors |
+| Manual test: Add expense → open detail → tap "Split with Friends" | Verify 3-step flow renders |
+| Manual test: Assign items → save → return to detail | Verify split breakdown card appears |
+| Manual test: Toggle "Settled" on a friend | Verify UI updates + DB persists |
+| Manual test: Tap "Share Bill" | Verify OS share sheet opens with formatted text |
+| Manual test: Open group detail | Verify "Pending Dues" shows correct amounts |
+| Manual test: Tap "Send Reminder" | Verify share sheet opens with reminder text |
 
-## 5. Known Issues / Next Steps
+---
 
-- **No known issues.** Zero new dependencies — uses existing `friends`, `groups`, and `group_members` tables from M1.
-- **No breaking changes** to any M1-M3 code.
-- **Milestone 5 candidates:**
-  - Itemized expense entry (line items with quantity + unit price)
-  - Item-level bill splitting with per-friend share assignment
-  - Autocomplete merchant/app suggestions
-  - `+` / `−` stepper for quantities
+## Architecture Notes
+
+- **Non-itemized expenses** are handled uniformly: `ensureExpenseItems()` auto-creates a synthetic `expense_item` row so `item_splits` FK always has a valid target.
+- **Fee/discount distribution** is proportional to each participant's share of the items subtotal. If items subtotal is 0, fees are split equally.
+- **Rounding:** Every share is rounded to 2 decimal places (paise). Any `±0.01` drift is absorbed by the `'ME'` participant (or largest share if ME is absent), guaranteeing `sum(shares) === expenseTotal`.
+
+---
+
+## Known Issues / Limitations
+
+- None blocking. All M6 deliverables are functional.
+
+---
+
+## Cumulative Feature Map (M1–M6)
+
+| Milestone | Features |
+|-----------|----------|
+| M1 | Expo project, SQLite schema (6 tables), TS types, 4-tab layout |
+| M2 | Manual expense entry, category dashboard, `expensesRepo.ts` |
+| M3 | Indian Bank/UPI SMS parser engine, Parser Lab in Settings |
+| M4 | Friends & Groups CRUD, segmented Groups/Friends screen |
+| M5 | Itemized order entry, autocomplete catalog, `+ / −` stepper, expense detail |
+| **M6** | **Per-item splitting, proportional fees, settle toggle, WhatsApp share, group dues** |
+
+---
+
+## Next Steps (Milestone 7 Candidates)
+
+1. **Screenshot / Bill OCR** — Use camera or image picker + on-device or cloud OCR to auto-extract items from grocery/restaurant bills.
+2. **Native SMS / Notification Listener** — Move from Parser Lab to real-time background transaction capture via Android SMS/notification APIs (requires leaving Expo Go for a dev build).
+3. **Settlement History & Analytics** — Track who paid whom over time, monthly split trends.
+4. **Export / Backup** — Export DB or CSV, cloud sync.
