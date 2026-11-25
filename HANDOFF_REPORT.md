@@ -1,87 +1,46 @@
-# HANDOFF REPORT — Milestone 6: Per-Item Splitting + Proportional Fees/Discounts + Dues & WhatsApp Summary
+# HANDOFF REPORT — Milestone 7: Screenshot / Bill OCR Pipeline → Auto-Fill Itemized Expense
 
-## Status: ✅ COMPLETED
+## 1. Status
+**Completed** — `npx tsc --noEmit` passed with **0 errors**, and `expo-image-picker` (`~58.0.10`) is installed while maintaining full Expo Go compatibility.
 
-`npx tsc --noEmit` → **0 errors**
-
----
-
-## Files Created / Modified
+## 2. Files Created / Modified
 
 | # | File | Action | Summary |
 |---|------|--------|---------|
-| 1 | `src/services/splitEngine.ts` | **Created** | Pure TS split math: `calculateItemizedSplit()` with proportional fee/discount distribution, paise rounding, drift correction on ME/largest share; `formatSplitShareMessage()` for WhatsApp/SMS-ready text. |
-| 2 | `src/db/splitsRepo.ts` | **Created** | `ensureExpenseItems()` (synthetic item for non-itemized expenses), `saveExpenseSplits()`, `getSplitsByExpenseId()`, `toggleFriendExpenseSettled()`, `getGroupDuesSummary()`. |
-| 3 | `app/split/[id].tsx` | **Created** | 3-step split flow: select participants (groups + individual friends + "Include Me" toggle) → assign items with `−/+` steppers and "Split Equally" per item → live summary with save. |
-| 4 | `app/expense/[id].tsx` | **Rewritten** | Added split breakdown card with per-friend settle/unsettle toggle, "Share Bill (WhatsApp/SMS)" button via `Share.share()`, enabled "Split with Friends" navigation to `/split/${id}`. |
-| 5 | `app/group/[id].tsx` | **Rewritten** | Live "Pending Dues" section from `getGroupDuesSummary()`, "Send Reminder" button per member via `Share.share()`, "All settled ✓" card when no pending dues. |
-| 6 | `app/_layout.tsx` | **Modified** | Registered `split/[id]` route with `<Stack.Screen>`. |
-| 7 | (no 7th — 6 files total) | — | — |
+| 1 | `package.json` (and `package-lock.json`) | **Modified** | Installed `expo-image-picker` (`~58.0.10`) compatible with Expo SDK 58 / Expo Go. |
+| 2 | `src/db/schema.ts` | **Modified** | Added `CREATE TABLE IF NOT EXISTS app_settings (key TEXT PRIMARY KEY, value TEXT);` while keeping all 6 existing tables untouched. |
+| 3 | `src/db/settingsRepo.ts` | **Created** | Lightweight SQLite key-value store exporting `getSetting(key)` and `setSetting(key, value)`. |
+| 4 | `src/services/billOcr.ts` | **Created** | Gemini REST OCR service exporting `ParsedBillResult`, `extractBillFromImage(base64Image, mimeType, apiKey)`, and `getDemoZeptoBill()`. |
+| 5 | `app/(tabs)/settings.tsx` | **Modified** | Added the **"📷 Bill Scanner (OCR) Setup"** card above Parser Lab with a masked Gemini API key input, `Save Key` action, and `✅ Key saved` / `⚠️ No key set` status. |
+| 6 | `app/(tabs)/add-expense.tsx` | **Modified** | Added the **"Scan Bill / Screenshot"** bar (`Screenshot / Gallery`, `Camera`, `Demo Bill`), thumbnail + loading state (`"Extracting items..."`), missing-key prompt, auto-population of M5 itemized UI, and `source: 'ocr'` persistence. |
 
----
+*(Note: `src/db/itemsRepo.ts` already accepted optional `source?: ExpenseSource` via `AddExpenseInput` and stores `'ocr'` directly when passed from `add-expense.tsx`.)*
 
-## Key Functions / Routes Added
+## 3. Key Functions / Services Added
 
-### Split Engine (`src/services/splitEngine.ts`)
-- `calculateItemizedSplit({ expenseTotal, items, participants, assignments })` → `SplitResult` with per-participant `{ participantId, name, itemSubtotal, extraFeeShare, finalTotal, itemBreakdown[] }`
-- `formatSplitShareMessage(expense, splitResults)` → WhatsApp-formatted string
+### Settings Store (`src/db/settingsRepo.ts`)
+- `getSetting(key: string): Promise<string | null>` — Reads a persisted setting from `app_settings` (returns `null` if unset/empty).
+- `setSetting(key: string, value: string): Promise<void>` — Upserts a setting into `app_settings` (`ON CONFLICT(key) DO UPDATE`).
 
-### Splits Repository (`src/db/splitsRepo.ts`)
-- `ensureExpenseItems(expenseId, expenseAmount)` — creates synthetic item if expense has none
-- `saveExpenseSplits(expenseId, splits)` — batch insert into `item_splits`
-- `getSplitsByExpenseId(expenseId)` — returns all splits joined with friend names and item details
-- `toggleFriendExpenseSettled(expenseId, friendId, settled)` — toggle `is_settled` flag
-- `getGroupDuesSummary(groupId)` — aggregates unsettled dues per member across the group's expenses
+### Bill OCR Service (`src/services/billOcr.ts`)
+- `ParsedBillResult` — `{ merchant, app_name, category, total_amount, items: { item_name, unit_price, quantity }[] }`.
+- `extractBillFromImage(base64Image, mimeType, apiKey)` — Sends a `fetch` POST request to `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent` with `responseMimeType: "application/json"`, validates and normalizes the extracted JSON, and throws clear human-readable errors for invalid keys, rate limits, network errors, or unreadable bills.
+- `getDemoZeptoBill()` — Returns a deterministic sample Zepto order (`₹215` across Lays, Cadbury Dairy Milk Silk, Coca-Cola 750ml ×2, and Delivery & Handling Fee) for offline testing without an API key.
 
-### New Route
-- `/split/[id]` — 3-step split screen for any expense
+### UI Flows
+- **Settings (`app/(tabs)/settings.tsx`)**: Loads/saves `gemini_api_key` via `settingsRepo` using `secureTextEntry` and displays key availability status above Parser Lab.
+- **Add Expense (`app/(tabs)/add-expense.tsx`)**: Handles camera/gallery permissions and base64 image picking (`quality: 0.7`), prompts to configure the API key in Settings if missing, populates `merchant`, `category`, `app_name`, `total_amount` (preserving total even when fees/discounts differ from item sums), toggles **Itemize Order ON**, populates line items into the `+ / −` stepper list, and saves with `source: 'ocr'`.
 
----
+## 4. Verification
+- **TypeScript Check:** `npx tsc --noEmit` in `f:\Codec\plutilya` exited with code `0` (**0 errors**).
+- **Manual Test Steps (Expo Go):**
+  1. **Demo Bill (Offline):** Open **Add Expense** → tap **✨ Demo Bill** → verify **Zepto**, category **Food**, app **Zepto**, total **₹215.00**, and 4 itemized rows populate with **Itemize Order** toggled ON → adjust quantities or tap **Save Expense** → verify it saves cleanly (with `source = 'ocr'`) and can be split in Expense Details.
+  2. **Missing Key Guard:** Ensure **Settings** shows `⚠️ No key set` → in **Add Expense**, tap **🖼️ Screenshot / Gallery** and pick an image → verify alert prompts to add your key in **Settings** (or use Demo Bill).
+  3. **Real Image / Camera Scan:** Open **Settings** → paste a Google AI Studio Gemini API key in **📷 Bill Scanner (OCR) Setup** → tap **Save Key** → verify status switches to `✅ Key saved` → return to **Add Expense** → tap **🖼️ Screenshot / Gallery** or **📷 Camera** with an order screenshot or paper receipt → verify thumbnail preview + `"Extracting items..."` spinner → verify extracted merchant, app, category, total, and editable items populate → save and inspect in Dashboard/Expense Details.
 
-## Verification
-
-| Check | Result |
-|-------|--------|
-| `npx tsc --noEmit` | ✅ 0 errors |
-| Manual test: Add expense → open detail → tap "Split with Friends" | Verify 3-step flow renders |
-| Manual test: Assign items → save → return to detail | Verify split breakdown card appears |
-| Manual test: Toggle "Settled" on a friend | Verify UI updates + DB persists |
-| Manual test: Tap "Share Bill" | Verify OS share sheet opens with formatted text |
-| Manual test: Open group detail | Verify "Pending Dues" shows correct amounts |
-| Manual test: Tap "Send Reminder" | Verify share sheet opens with reminder text |
-
----
-
-## Architecture Notes
-
-- **Non-itemized expenses** are handled uniformly: `ensureExpenseItems()` auto-creates a synthetic `expense_item` row so `item_splits` FK always has a valid target.
-- **Fee/discount distribution** is proportional to each participant's share of the items subtotal. If items subtotal is 0, fees are split equally.
-- **Rounding:** Every share is rounded to 2 decimal places (paise). Any `±0.01` drift is absorbed by the `'ME'` participant (or largest share if ME is absent), guaranteeing `sum(shares) === expenseTotal`.
-
----
-
-## Known Issues / Limitations
-
-- None blocking. All M6 deliverables are functional.
-
----
-
-## Cumulative Feature Map (M1–M6)
-
-| Milestone | Features |
-|-----------|----------|
-| M1 | Expo project, SQLite schema (6 tables), TS types, 4-tab layout |
-| M2 | Manual expense entry, category dashboard, `expensesRepo.ts` |
-| M3 | Indian Bank/UPI SMS parser engine, Parser Lab in Settings |
-| M4 | Friends & Groups CRUD, segmented Groups/Friends screen |
-| M5 | Itemized order entry, autocomplete catalog, `+ / −` stepper, expense detail |
-| **M6** | **Per-item splitting, proportional fees, settle toggle, WhatsApp share, group dues** |
-
----
-
-## Next Steps (Milestone 7 Candidates)
-
-1. **Screenshot / Bill OCR** — Use camera or image picker + on-device or cloud OCR to auto-extract items from grocery/restaurant bills.
-2. **Native SMS / Notification Listener** — Move from Parser Lab to real-time background transaction capture via Android SMS/notification APIs (requires leaving Expo Go for a dev build).
-3. **Settlement History & Analytics** — Track who paid whom over time, monthly split trends.
-4. **Export / Backup** — Export DB or CSV, cloud sync.
+## 5. Known Issues / Next Steps
+- **Note on `npm install` peer deps:** `expo-image-picker` was installed with `--legacy-peer-deps` due to an existing `react@19.3.0` vs `react-dom@19.3.1` peer conflict in `@expo/dom-webview` / `@radix-ui` dependencies. No impact on runtime or TypeScript compilation.
+- **Next Steps (Milestone 8 — Native Android Notification/SMS Listener + APK Build):**
+  1. Transition from Expo Go to an **Expo Development Build / EAS Build** (`expo-dev-client` + `android.permissions`).
+  2. Wire a native Android Notification / SMS listener service into the existing `parseTransactionMessage()` engine (`src/services/smsParser.ts`) for automatic real-time expense capture (`source: 'sms'` / `'notification'`).
+  3. Generate a release/preview **Android APK** via EAS Build.

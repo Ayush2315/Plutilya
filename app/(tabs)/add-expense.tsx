@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
@@ -7,15 +7,25 @@ import {
   ScrollView,
   Switch,
   Alert,
+  Image,
+  ActivityIndicator,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { CATEGORIES, POPULAR_APPS } from '../../src/constants/categories';
 import { addExpense } from '../../src/db/expensesRepo';
 import { saveExpenseWithItems, getDistinctPastItems, type ItemInput } from '../../src/db/itemsRepo';
+import { getSetting } from '../../src/db/settingsRepo';
 import { searchItemSuggestions, type ItemSuggestion } from '../../src/constants/itemCatalog';
+import {
+  extractBillFromImage,
+  getDemoZeptoBill,
+  type ParsedBillResult,
+} from '../../src/services/billOcr';
+import type { ExpenseSource } from '../../src/types/models';
 
 // ─── Local item row state ────────────────────────────────────────────
 interface ItemRow {
@@ -38,7 +48,13 @@ export default function AddExpenseScreen() {
   const [appKey, setAppKey] = useState('');
   const [customApp, setCustomApp] = useState('');
   const [notes, setNotes] = useState('');
+  const [expenseSource, setExpenseSource] = useState<ExpenseSource>('manual');
   const [saving, setSaving] = useState(false);
+
+  // ── OCR scan state ───────────────────────────
+  const [scanImageUri, setScanImageUri] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const skipNextAmountSync = useRef(false);
 
   // ── Itemize toggle ───────────────────────────
   const [itemize, setItemize] = useState(false);
@@ -69,6 +85,10 @@ export default function AddExpenseScreen() {
 
   // Auto-sync amount from items
   useEffect(() => {
+    if (skipNextAmountSync.current) {
+      skipNextAmountSync.current = false;
+      return;
+    }
     if (itemize && items.length > 0) {
       const total = items.reduce((s, i) => s + i.unit_price * i.quantity, 0);
       setAmount(total.toFixed(2));
@@ -82,11 +102,123 @@ export default function AddExpenseScreen() {
     setAppKey('');
     setCustomApp('');
     setNotes('');
+    setExpenseSource('manual');
+    setScanImageUri(null);
+    setScanning(false);
     setItemize(false);
     setItems([]);
     setItemQuery('');
     setItemPrice('');
     setSuggestions([]);
+  }
+
+  function applyParsedBill(parsed: ParsedBillResult) {
+    setMerchant(parsed.merchant);
+    setCategory(parsed.category.toLowerCase());
+
+    if (parsed.app_name) {
+      const matched = POPULAR_APPS.find(
+        (a) =>
+          a.key !== 'other' &&
+          a.label.toLowerCase() === parsed.app_name!.toLowerCase(),
+      );
+      if (matched) {
+        setAppKey(matched.key);
+        setCustomApp('');
+      } else {
+        setAppKey('other');
+        setCustomApp(parsed.app_name);
+      }
+    } else {
+      setAppKey('');
+      setCustomApp('');
+    }
+
+    skipNextAmountSync.current = true;
+    setItemize(true);
+    setItems(
+      parsed.items.map((it) => ({
+        key: nextKey(),
+        item_name: it.item_name,
+        unit_price: it.unit_price,
+        quantity: it.quantity,
+      })),
+    );
+    setAmount(parsed.total_amount.toFixed(2));
+    setExpenseSource('ocr');
+  }
+
+  async function handlePickImage(mode: 'gallery' | 'camera') {
+    const perm =
+      mode === 'camera'
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (!perm.granted) {
+      Alert.alert(
+        'Permission Needed',
+        mode === 'camera'
+          ? 'Please grant camera permission to take a photo of your bill.'
+          : 'Please grant photo library access to pick a bill screenshot.',
+      );
+      return;
+    }
+
+    const options: ImagePicker.ImagePickerOptions = {
+      mediaTypes: ['images'],
+      base64: true,
+      quality: 0.7,
+    };
+
+    const result =
+      mode === 'camera'
+        ? await ImagePicker.launchCameraAsync(options)
+        : await ImagePicker.launchImageLibraryAsync(options);
+
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setScanImageUri(asset.uri);
+
+    const apiKey = await getSetting('gemini_api_key');
+    if (!apiKey) {
+      Alert.alert(
+        'Gemini API Key Needed',
+        'Add your free Google AI Studio key in the Settings tab to scan bills, or use Demo Bill.',
+        [
+          {
+            text: 'Go to Settings',
+            onPress: () => router.navigate('/(tabs)/settings'),
+          },
+          { text: 'OK' },
+        ],
+      );
+      return;
+    }
+
+    if (!asset.base64) {
+      Alert.alert('Scan Error', 'Could not read image data. Please try again.');
+      return;
+    }
+
+    setScanning(true);
+    try {
+      const parsed = await extractBillFromImage(
+        asset.base64,
+        asset.mimeType ?? 'image/jpeg',
+        apiKey,
+      );
+      applyParsedBill(parsed);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to extract bill items.';
+      Alert.alert('Scan Failed', msg);
+    } finally {
+      setScanning(false);
+    }
+  }
+
+  function handleDemoBill() {
+    setScanImageUri(null);
+    applyParsedBill(getDemoZeptoBill());
   }
 
   function resolvedAppName(): string | null {
@@ -156,6 +288,7 @@ export default function AddExpenseScreen() {
         category,
         app_name: resolvedAppName(),
         notes: notes.trim() || null,
+        source: expenseSource,
       };
 
       if (itemize && items.length > 0) {
@@ -193,6 +326,56 @@ export default function AddExpenseScreen() {
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"
       >
+        {/* ── Scan Bill / Screenshot Bar ──────────── */}
+        <View style={styles.scanCard}>
+          <Text style={styles.scanTitle}>Scan Bill / Screenshot</Text>
+          <View style={styles.scanBtnRow}>
+            <TouchableOpacity
+              style={styles.scanBtn}
+              onPress={() => handlePickImage('gallery')}
+              disabled={scanning}
+            >
+              <Text style={styles.scanBtnText}>🖼️ Screenshot / Gallery</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.scanBtn}
+              onPress={() => handlePickImage('camera')}
+              disabled={scanning}
+            >
+              <Text style={styles.scanBtnText}>📷 Camera</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.scanBtn, styles.demoBtn]}
+              onPress={handleDemoBill}
+              disabled={scanning}
+            >
+              <Text style={styles.demoBtnText}>✨ Demo Bill</Text>
+            </TouchableOpacity>
+          </View>
+
+          {(scanImageUri || scanning) && (
+            <View style={styles.previewRow}>
+              {scanImageUri && (
+                <Image source={{ uri: scanImageUri }} style={styles.previewThumb} />
+              )}
+              <View style={styles.previewInfo}>
+                {scanning ? (
+                  <View style={styles.scanningRow}>
+                    <ActivityIndicator size="small" color="#7C5CFC" />
+                    <Text style={styles.scanningText}>Extracting items...</Text>
+                  </View>
+                ) : (
+                  <Text style={styles.previewReadyText}>
+                    {expenseSource === 'ocr'
+                      ? '✅ Bill extracted — review items below'
+                      : 'Image selected'}
+                  </Text>
+                )}
+              </View>
+            </View>
+          )}
+        </View>
+
         {/* ── Amount ───────────────────────────────── */}
         <Text style={styles.label}>Amount</Text>
         <View style={styles.amountRow}>
@@ -501,4 +684,56 @@ const styles = StyleSheet.create({
     paddingVertical: 16, alignItems: 'center', marginTop: 28,
   },
   saveBtnText: { color: '#FFF', fontSize: 17, fontWeight: '700' },
+
+  /* scan bar */
+  scanCard: {
+    backgroundColor: '#161616',
+    borderRadius: 14,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+    marginBottom: 4,
+  },
+  scanTitle: {
+    color: '#AAA',
+    fontSize: 12,
+    fontWeight: '700',
+    marginBottom: 8,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  scanBtnRow: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' },
+  scanBtn: {
+    backgroundColor: '#1F1F1F',
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    borderWidth: 1,
+    borderColor: '#2E2E2E',
+  },
+  scanBtnText: { color: '#F5F5F5', fontSize: 12, fontWeight: '600' },
+  demoBtn: {
+    borderColor: '#7C5CFC60',
+    backgroundColor: '#7C5CFC20',
+  },
+  demoBtnText: { color: '#B79FFF', fontSize: 12, fontWeight: '700' },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#222',
+    gap: 10,
+  },
+  previewThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 8,
+    backgroundColor: '#222',
+  },
+  previewInfo: { flex: 1 },
+  scanningRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  scanningText: { color: '#B79FFF', fontSize: 13, fontWeight: '600' },
+  previewReadyText: { color: '#4ECDC4', fontSize: 13, fontWeight: '600' },
 });

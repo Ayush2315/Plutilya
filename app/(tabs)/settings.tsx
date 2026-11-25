@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
   Alert,
   StyleSheet,
 } from 'react-native';
+import { useFocusEffect } from 'expo-router';
 import {
   parseTransactionMessage,
   type ParsedTransaction,
@@ -15,13 +16,47 @@ import {
 import { SAMPLE_MESSAGES } from '../../src/services/smsParser.samples';
 import { CATEGORY_MAP } from '../../src/constants/categories';
 import { addExpense } from '../../src/db/expensesRepo';
+import { getSetting, setSetting } from '../../src/db/settingsRepo';
+
+const GEMINI_KEY_SETTING = 'gemini_api_key';
 
 export default function SettingsScreen() {
+  // ── Bill Scanner (OCR) API Key state ─────────
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [hasSavedKey, setHasSavedKey] = useState(false);
+
+  // ── Parser Lab state ─────────────────────────
   const [inputText, setInputText] = useState('');
   const [result, setResult] = useState<ParsedTransaction | null | undefined>(
     undefined, // undefined = not yet parsed; null = ignored
   );
   const [saved, setSaved] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      getSetting(GEMINI_KEY_SETTING).then((existing) => {
+        setHasSavedKey(Boolean(existing));
+        if (existing) setApiKeyInput(existing);
+      });
+    }, []),
+  );
+
+  async function handleSaveApiKey() {
+    const trimmed = apiKeyInput.trim();
+    try {
+      await setSetting(GEMINI_KEY_SETTING, trimmed);
+      setHasSavedKey(trimmed.length > 0);
+      Alert.alert(
+        trimmed ? '✅ Key Saved' : 'Key Cleared',
+        trimmed
+          ? 'Your Google AI Studio API key is saved locally.'
+          : 'Gemini API key removed.',
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Unknown error';
+      Alert.alert('Error', msg);
+    }
+  }
 
   function handleParse() {
     const trimmed = inputText.trim();
@@ -67,6 +102,34 @@ export default function SettingsScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
+      {/* ── Bill Scanner (OCR) Setup ─────────────── */}
+      <View style={styles.ocrCard}>
+        <View style={styles.ocrHeader}>
+          <Text style={styles.ocrTitle}>📷 Bill Scanner (OCR) Setup</Text>
+          <Text style={[styles.keyStatus, hasSavedKey ? styles.keyStatusOk : styles.keyStatusWarn]}>
+            {hasSavedKey ? '✅ Key saved' : '⚠️ No key set'}
+          </Text>
+        </View>
+        <Text style={styles.ocrHint}>
+          Paste your Google AI Studio Gemini API key to scan receipts & app screenshots.
+        </Text>
+        <View style={styles.keyRow}>
+          <TextInput
+            style={styles.keyInput}
+            placeholder="AIza..."
+            placeholderTextColor="#555"
+            value={apiKeyInput}
+            onChangeText={setApiKeyInput}
+            secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <TouchableOpacity style={styles.saveKeyBtn} onPress={handleSaveApiKey}>
+            <Text style={styles.saveKeyBtnText}>Save Key</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
       {/* ── Header ───────────────────────────────── */}
       <Text style={styles.title}>🧪 Parser Lab</Text>
       <Text style={styles.subtitle}>
@@ -298,4 +361,45 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   clearBtnText: { color: '#666', fontSize: 13, textDecorationLine: 'underline' },
+
+  /* OCR Setup card */
+  ocrCard: {
+    backgroundColor: '#161616',
+    borderRadius: 14,
+    padding: 16,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  ocrHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 8,
+  },
+  ocrTitle: { color: '#F5F5F5', fontSize: 16, fontWeight: '700', flex: 1 },
+  keyStatus: { fontSize: 12, fontWeight: '700' },
+  keyStatusOk: { color: '#4ECDC4' },
+  keyStatusWarn: { color: '#FFD93D' },
+  ocrHint: { color: '#888', fontSize: 12, lineHeight: 17, marginBottom: 12 },
+  keyRow: { flexDirection: 'row', gap: 8, alignItems: 'center' },
+  keyInput: {
+    flex: 1,
+    backgroundColor: '#1A1A1A',
+    color: '#F5F5F5',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: '#2A2A2A',
+  },
+  saveKeyBtn: {
+    backgroundColor: '#7C5CFC',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+  },
+  saveKeyBtnText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
 });

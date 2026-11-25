@@ -63,6 +63,11 @@ export async function initDatabase(): Promise<SQLite.SQLiteDatabase> {
       FOREIGN KEY (expense_item_id) REFERENCES expense_items(id) ON DELETE CASCADE,
       FOREIGN KEY (friend_id)       REFERENCES friends(id)       ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key   TEXT PRIMARY KEY,
+      value TEXT
+    );
   `);
 
   return db;
