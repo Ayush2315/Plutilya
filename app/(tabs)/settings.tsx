@@ -5,6 +5,7 @@ import {
   TextInput,
   TouchableOpacity,
   ScrollView,
+  Switch,
   Alert,
   StyleSheet,
 } from 'react-native';
@@ -17,10 +18,16 @@ import { SAMPLE_MESSAGES } from '../../src/services/smsParser.samples';
 import { CATEGORY_MAP } from '../../src/constants/categories';
 import { addExpense } from '../../src/db/expensesRepo';
 import { getSetting, setSetting } from '../../src/db/settingsRepo';
+import * as NotificationListener from '../../modules/notification-listener';
 
 const GEMINI_KEY_SETTING = 'gemini_api_key';
 
 export default function SettingsScreen() {
+  // ── Auto-Capture state ───────────────────────
+  const [notifAvailable] = useState(NotificationListener.isAvailable);
+  const [notifPermission, setNotifPermission] = useState(false);
+  const [autoCaptureOn, setAutoCaptureOn] = useState(true);
+
   // ── Bill Scanner (OCR) API Key state ─────────
   const [apiKeyInput, setApiKeyInput] = useState('');
   const [hasSavedKey, setHasSavedKey] = useState(false);
@@ -34,12 +41,23 @@ export default function SettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      // Auto-capture
+      setNotifPermission(NotificationListener.isPermissionGranted());
+      getSetting('auto_capture_enabled').then((val) => {
+        setAutoCaptureOn(val !== 'false');
+      });
+      // OCR key
       getSetting(GEMINI_KEY_SETTING).then((existing) => {
         setHasSavedKey(Boolean(existing));
         if (existing) setApiKeyInput(existing);
       });
     }, []),
   );
+
+  async function handleToggleAutoCapture(value: boolean) {
+    setAutoCaptureOn(value);
+    await setSetting('auto_capture_enabled', value ? 'true' : 'false');
+  }
 
   async function handleSaveApiKey() {
     const trimmed = apiKeyInput.trim();
@@ -102,6 +120,59 @@ export default function SettingsScreen() {
       contentContainerStyle={styles.content}
       keyboardShouldPersistTaps="handled"
     >
+      {/* ── Auto-Capture (Android Notifications) ── */}
+      <View style={styles.ocrCard}>
+        <View style={styles.ocrHeader}>
+          <Text style={styles.ocrTitle}>🔔 Auto-Capture (Android)</Text>
+          <Text
+            style={[
+              styles.keyStatus,
+              !notifAvailable
+                ? styles.keyStatusInfo
+                : notifPermission
+                  ? styles.keyStatusOk
+                  : styles.keyStatusWarn,
+            ]}
+          >
+            {!notifAvailable
+              ? 'ℹ️ Requires APK Build'
+              : notifPermission
+                ? '✅ Active'
+                : '⚠️ Permission Required'}
+          </Text>
+        </View>
+        <Text style={styles.ocrHint}>
+          {notifAvailable
+            ? 'Automatically captures bank/UPI notifications as expenses.'
+            : 'Unavailable in Expo Go. Build an APK to enable notification auto-capture.'}
+        </Text>
+
+        {notifAvailable && !notifPermission && (
+          <TouchableOpacity
+            style={styles.grantBtn}
+            onPress={() => {
+              NotificationListener.openNotificationAccessSettings();
+            }}
+          >
+            <Text style={styles.grantBtnText}>Grant Notification Access</Text>
+          </TouchableOpacity>
+        )}
+
+        {notifAvailable && (
+          <View style={styles.acToggleRow}>
+            <Text style={styles.acToggleLabel}>
+              {autoCaptureOn ? 'Auto-capture ON' : 'Auto-capture paused'}
+            </Text>
+            <Switch
+              value={autoCaptureOn}
+              onValueChange={handleToggleAutoCapture}
+              trackColor={{ false: '#333', true: '#7C5CFC60' }}
+              thumbColor={autoCaptureOn ? '#7C5CFC' : '#888'}
+            />
+          </View>
+        )}
+      </View>
+
       {/* ── Bill Scanner (OCR) Setup ─────────────── */}
       <View style={styles.ocrCard}>
         <View style={styles.ocrHeader}>
@@ -402,4 +473,25 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
   },
   saveKeyBtnText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+
+  /* Auto-capture extras */
+  keyStatusInfo: { color: '#888' },
+  grantBtn: {
+    backgroundColor: '#7C5CFC',
+    borderRadius: 10,
+    paddingVertical: 11,
+    alignItems: 'center',
+    marginTop: 8,
+  },
+  grantBtnText: { color: '#FFF', fontSize: 13, fontWeight: '700' },
+  acToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 10,
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#222',
+  },
+  acToggleLabel: { color: '#CCC', fontSize: 13, fontWeight: '600' },
 });

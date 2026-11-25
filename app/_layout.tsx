@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View, Text, StyleSheet, ActivityIndicator } from 'react-native';
 import * as SQLite from 'expo-sqlite';
 import { initDatabase } from '../src/db/schema';
+import { initAutoCapture } from '../src/services/autoCapture';
 
 export default function RootLayout() {
   const [db, setDb] = useState<SQLite.SQLiteDatabase | null>(null);
@@ -11,7 +12,10 @@ export default function RootLayout() {
 
   useEffect(() => {
     initDatabase()
-      .then(setDb)
+      .then((database) => {
+        setDb(database);
+        initAutoCapture();
+      })
       .catch((e: Error) => setError(e.message));
   }, []);
 
